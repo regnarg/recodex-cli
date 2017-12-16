@@ -45,14 +45,19 @@ sub flatten-form-data(%data) {
         when Positional|Associative {
             $_.kv.map: -> $idx, $elem { | flatten($elem, $prefix~"[$idx]")  }
         }
-        when Str|Numeric {
-            $prefix => $_
+        when Cool {
+            $prefix => ~$_
         }
         when FileUpload {
             $prefix => [.local, .name, "Content_Type", .type]
         }
+        default {
+            die "Cannot flatten {$_.perl}"
+        }
     }
     my @query = %data.kv.map: -> $name, $val { | flatten($val, $name) };
+    note @query.perl;
+    note @query.Hash.perl;
     @query.Hash
 }
 
@@ -108,6 +113,17 @@ class Exercise does ApiPrefix {
         :cpp<   cxx-gcc-linux       >,
         :pas<   freepascal-linux    >,
     };
+    constant %ENV-TO-LANG = %LANG-TO-ENV.invert.Hash;
+    constant %LANG-COMPILE-PIPELINE = {
+        c => "GCC Compilation",
+        cpp => "G++ Compilation",
+        pas => "FreePascal Compilation",
+        cs  => "MCS Compilation",
+    };
+    constant %LANG-STDIO-PIPELINE = {
+        cs => "Mono execution & evaluation [stdout]",
+        |(<c cpp pas> >>[=>]>> "ELF execution & evaluation [stdout]"),
+    };
     constant @DEFAULT-LANGS = <c cpp pas>;
     method setup-envs(@langs = @DEFAULT-LANGS) {
         my %env-defaults;
@@ -122,6 +138,49 @@ class Exercise does ApiPrefix {
                                 variablesTable => %env-defaults{$id}<defaultVariables> };
         }
         $.post("environment-configs", environmentConfigs => @env-configs);
+    }
+    method setup-tests($num) {
+        my @tests = (1..$num).map: { %( name => "Test $_", description => "" )  };
+        $.post("tests", :@tests);
+        my @env-configs;
+        my %pipeline-by-name;
+        my %file-hashname = $.list-files.map: { $_<name> => $_<hashName> };
+        for @(get("pipelines")) {
+            %pipeline-by-name{$_<name>} = $_;
+        }
+        for $.get("environment-configs")>><runtimeEnvironmentId> -> $env {
+            my @tests;
+            my $lang = %ENV-TO-LANG{$env};
+            for 1..$num -> $idx {
+                my $compile-pipeline = {
+                    name => %pipeline-by-name{%LANG-COMPILE-PIPELINE{$lang}}<id>,
+                    variables => [],
+                };
+                my ($in-file, $out-file) = ($idx.fmt("%02d.") <<~<< <in out>).map: {
+                    %file-hashname{$_} // die("Cannot find file $_ in task supplementary files") };
+                my $run-pipeline = {
+                    name => %pipeline-by-name{%LANG-STDIO-PIPELINE{$lang}}<id>,
+                    variables => [
+                        { :name<stdin-file>,      :value($in-file),  :type<remote-file>   },
+                        { :name<expected-output>, :value($out-file), :type<remote-file>   },
+                        { :name<judge-type>,      :value<recodex-judge-normal>,      :type<string>        },
+                        { :name<custom-judge>,    :value(''),                        :type<remote-file>   },
+                        { :name<binary-file>,     :value(''),                        :type<file>   },
+                        { :name<judge-args>,      :value[],                          :type<string[]>      },
+                        { :name<run-args>,        :value[],                          :type<string[]>      },
+                        { :name<input-files>,     :value[],                          :type<remote-file[]> },
+                        { :name<actual-inputs>,   :value[],                          :type<file[]>        },
+                    ]
+                };
+                my $test = {
+                    name => "Test $idx",
+                    pipelines => [$compile-pipeline, $run-pipeline],
+                };
+                @tests.push($test);
+            }
+            @env-configs.push: { :name($env), :@tests };
+        }
+        $.post("config", config => @env-configs);
     }
     #submethod BUILD { $!prefix = "exercises/$!id"; }
     method list-files { $.get("supplementary-files"); }
