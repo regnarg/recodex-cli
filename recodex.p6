@@ -53,6 +53,7 @@ sub flatten-form-data(%data) {
         }
     }
     my @query = %data.kv.map: -> $name, $val { | flatten($val, $name) };
+    @query.Hash
 }
 
 sub api-request($meth, $path, *%kw) {
@@ -102,13 +103,25 @@ role ApiPrefix {
 class Exercise does ApiPrefix {
     has $.id;
     has $.prefix = "exercises/$!id";
-    constant %ENVS = {
-        :c<     c-gcc-linux         *.{c,h}             >,
-        :cpp<   cxx-gcc-linux       *.{cpp,cxx,h,hpp}   >,
-        :pas<   freepascal-linux    *.{pas,lpr}         >,
+    constant %LANG-TO-ENV = {
+        :c<     c-gcc-linux         >,
+        :cpp<   cxx-gcc-linux       >,
+        :pas<   freepascal-linux    >,
     };
-    method setup-envs {
-        
+    constant @DEFAULT-LANGS = <c cpp pas>;
+    method setup-envs(@langs = @DEFAULT-LANGS) {
+        my %env-defaults;
+        for @(get("runtime-environments")) -> $env {
+            note $env;
+            %env-defaults{$env<id>} = $env;
+        }
+        my @env-configs;
+        for @langs -> $lang {
+            my $id = %LANG-TO-ENV{$lang};
+            @env-configs.push: { runtimeEnvironmentId => $id,
+                                variablesTable => %env-defaults{$id}<defaultVariables> };
+        }
+        $.post("environment-configs", environmentConfigs => @env-configs);
     }
     #submethod BUILD { $!prefix = "exercises/$!id"; }
     method list-files { $.get("supplementary-files"); }
