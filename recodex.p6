@@ -50,11 +50,11 @@ sub api-request($meth, $path, *%kw) {
         %lwp-kw<Content> = %form-data.&to-json;
         %lwp-kw<Content_Type> = "application/json";
     }
-    note "$meth.uc() $root/$path";
+    note "$meth.uc() $root/$path  {%form-data.&to-json}";
     my $lwp-args = \("$root/$path", Authorization => "Bearer $token", |%lwp-kw);
-    note $lwp-args.perl;
+    #note $lwp-args.perl;
     my $resp = LWP::UserAgent.new."$meth"(|$lwp-args);
-    note "RESPONSE " ~ $resp.code ~ " " ~ $resp.content.&to-str;
+    note "RESPONSE " ~ $resp.code ~ " " ~ $resp.content.&to-str.&from-json.&to-json; # pretty print
     if ($resp.code != 200) { die "HTTP error $resp.code()" ~ $resp.content(); }
 
     my $data = $resp.content.&to-str.&from-json;
@@ -84,6 +84,9 @@ role ApiPrefix {
     method delete(|args) { $.request("delete", |args); }
     method put(|args)    { $.request("put",    |args); }
 }
+
+# Apply function if value is defined
+my method def-apply(Any: &f) { defined(self) ?? f(self) !! self }
 
 class Exercise does ApiPrefix {
     has $.id;
@@ -180,6 +183,27 @@ class Exercise does ApiPrefix {
             @env-configs.push: { :name($env), :@tests };
         }
         $.post("config", config => @env-configs);
+    }
+    # Takes a list of rules in the form
+    # {:lang<...>, :test(1..5), :mem(128), :time(0.3)}
+    # |----- matchers -------| |------ limits -------|
+    #    (smartmatched)          (MB)         (sec)
+    # All fields are optionals. First matching rule for
+    # given test and limit type wins.
+    method setup-limits(@rules) {
+        my %test-ids = $.get("tests").kv.map( -> $idx, $test { $idx+1 => $test<id> }).Hash;
+        my @langs = %ENV-TO-LANG{ $.get("environment-configs")>><runtimeEnvironmentId>  };
+        my $num-tests = +%test-ids;
+        my %limits;
+        note @rules.perl;
+        for (1..$num-tests X @langs) -> $what ($test, $lang) {
+            my $rule = @rules.first(-> $rule { all(@$what Z~~ $rule<test lang>) }); # 8-)
+            note "  * $what.gist() matched $rule.gist()";
+            %limits{$lang}{%test-ids{$test}}<memory wall-time> [Z//]= ($rule<mem>.&def-apply(* * 1024), $rule<time>);
+        }
+        for @langs -> $lang {
+            $.post("environment/%LANG-TO-ENV{$lang}/limits", limits => %limits{$lang});
+        }
     }
     #submethod BUILD { $!prefix = "exercises/$!id"; }
     method list-files { $.get("supplementary-files"); }
