@@ -120,8 +120,8 @@ class Exercise does ApiPrefix {
         $.post("environment-configs", environmentConfigs => @env-configs);
     }
     method setup-tests($num) {
-        $.post("tests", tests => [{name=>"xxx", description=>""},]);
-        my @tests = (1..$num).map: { %( name => "Test $_", description => "" )  };
+        $.post("tests", tests => []);
+        my @tests = (1..$num).map: { %( name => sprintf("Test %02d", $_), description => "" )  };
         my %test-ids = $.post("tests", :@tests).kv.map( -> $idx, $test { $idx+1 => $test<id> }).Hash;
         note "TEST-IDS %test-ids.perl()";
         my @env-configs;
