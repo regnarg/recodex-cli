@@ -41,6 +41,7 @@ class FileUpload {
 # environmentConfigs[0][runtimeEnvironmentId]=python3&environmentConfigs[0][variablesTable][0][name]=source-file&...
 # It does not accept structured JSON input.
 sub flatten-form-data(%data) {
+    note "FLATTEN %data.perl()";
     multi flatten($_, $prefix) {
         when Positional|Associative {
             $_.kv.map: -> $idx, $elem { | flatten($elem, $prefix~"[$idx]")  }
@@ -140,11 +141,13 @@ class Exercise does ApiPrefix {
         $.post("environment-configs", environmentConfigs => @env-configs);
     }
     method setup-tests($num) {
+        $.post("tests", tests => [{name=>"xxx", description=>""},]);
         my @tests = (1..$num).map: { %( name => "Test $_", description => "" )  };
-        $.post("tests", :@tests);
+        my %test-ids = $.post("tests", :@tests).kv.map( -> $idx, $test { $idx+1 => $test<id> }).Hash;
+        note "TEST-IDS %test-ids.perl()";
         my @env-configs;
         my %pipeline-by-name;
-        my %file-hashname = $.list-files.map: { $_<name> => $_<hashName> };
+        #my %file-hashname = $.list-files.map: { $_<name> => $_<hashName> };
         for @(get("pipelines")) {
             %pipeline-by-name{$_<name>} = $_;
         }
@@ -156,24 +159,24 @@ class Exercise does ApiPrefix {
                     name => %pipeline-by-name{%LANG-COMPILE-PIPELINE{$lang}}<id>,
                     variables => [],
                 };
-                my ($in-file, $out-file) = ($idx.fmt("%02d.") <<~<< <in out>).map: {
-                    %file-hashname{$_} // die("Cannot find file $_ in task supplementary files") };
+                my ($in-file, $out-file) = ($idx.fmt("%02d.") <<~<< <in out>);
+                # .map: { %file-hashname{$_} // die("Cannot find file $_ in task supplementary files") };
                 my $run-pipeline = {
                     name => %pipeline-by-name{%LANG-STDIO-PIPELINE{$lang}}<id>,
                     variables => [
-                        { :name<stdin-file>,      :value($in-file),  :type<remote-file>   },
-                        { :name<expected-output>, :value($out-file), :type<remote-file>   },
-                        { :name<judge-type>,      :value<recodex-judge-normal>,      :type<string>        },
-                        { :name<custom-judge>,    :value(''),                        :type<remote-file>   },
-                        { :name<binary-file>,     :value(''),                        :type<file>   },
-                        { :name<judge-args>,      :value[],                          :type<string[]>      },
-                        { :name<run-args>,        :value[],                          :type<string[]>      },
-                        { :name<input-files>,     :value[],                          :type<remote-file[]> },
-                        { :name<actual-inputs>,   :value[],                          :type<file[]>        },
+                        { :name<stdin-file>,      :value($in-file),             :type<remote-file>   },
+                        { :name<expected-output>, :value($out-file),            :type<remote-file>   },
+                        { :name<judge-type>,      :value<recodex-judge-normal>, :type<string>        },
+                        { :name<custom-judge>,    :value(''),                   :type<remote-file>   },
+                        { :name<judge-args>,      :value[],                     :type<string[]>      },
+                        { :name<run-args>,        :value[],                     :type<string[]>      },
+                        { :name<input-files>,     :value[],                     :type<remote-file[]> },
+                        { :name<actual-inputs>,   :value[],                     :type<file[]>        },
                     ]
                 };
                 my $test = {
-                    name => "Test $idx",
+                    #name => "Test $idx",
+                    name => %test-ids{$idx},
                     pipelines => [$compile-pipeline, $run-pipeline],
                 };
                 @tests.push($test);
@@ -194,7 +197,7 @@ class Exercise does ApiPrefix {
         my $upload-resp = post("uploaded-files", :hdr-content-type<form-data>,
                             Content => { $name => [~$local, ~$name, "Content_Type", "text/plain;charset=UTF-8"] });
         my $add-resp = $.post("supplementary-files", Content => { "files[0]" => $upload-resp<id> });
-        $add-resp<id>;
+        $add-resp.first({$_<name> eq $name});
     }
 }
 
@@ -205,10 +208,10 @@ multi MAIN("repl") {
 
 multi MAIN("login", Str $username? is copy, :$cas=False) {
     without $username {
-        $*ERR.print(($cas ?? "CAS " !! "") ~ "Username: ");
+        $*ERR.print: ($cas ?? "CAS " !! "") ~ "Username: ";
         $username = $*IN.get;
     }
-    $*ERR.print(($cas ?? "CAS " !! "") ~ "Password: ");
+    $*ERR.print: ($cas ?? "CAS " !! "") ~ "Password: ";
     my $password = read_password();
 
     my $token = ($cas ?? &cas-login !! &login)($username, $password);
