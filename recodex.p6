@@ -161,13 +161,30 @@ class Exercise does ApiPrefix {
                 };
                 my ($in-file, $out-file) = ($idx.fmt("%02d.") <<~<< <in out>);
                 # .map: { %file-hashname{$_} // die("Cannot find file $_ in task supplementary files") };
+                note "LANG_STDIO_PIPELINE $lang $env %LANG-STDIO-PIPELINE{$lang}";
+                my $run-pipeline-info = %pipeline-by-name{%LANG-STDIO-PIPELINE{$lang}};
+                my @run-vars = @($run-pipeline-info<pipeline><variables>);
+                note "RV @run-vars.perl()";
+                sub set-var($name, $val) {
+                    @run-vars.first({$_<name> eq $name})<value> = $val;
+                }
+                sub del-var($name) {
+                    @run-vars = @run-vars.grep({$_<name> ne $name});
+                }
+                #set-var "stdin-file", $in-file;
+                #set-var "expected-output", $out-file;
+                #set-var "actual-inputs", [];
+                #del-var "binary-file";
+                #del-var "actual-output";
                 my $run-pipeline = {
-                    name => %pipeline-by-name{%LANG-STDIO-PIPELINE{$lang}}<id>,
-                    variables => [
+                    name => $run-pipeline-info<id>,
+                    variables => #@run-vars,
+                    [
                         { :name<stdin-file>,      :value($in-file),             :type<remote-file>   },
                         { :name<expected-output>, :value($out-file),            :type<remote-file>   },
                         { :name<judge-type>,      :value<recodex-judge-normal>, :type<string>        },
                         { :name<custom-judge>,    :value(''),                   :type<remote-file>   },
+                        #{ :name<binary-file>,     :value('a.out'),                   :type<file>   },
                         { :name<judge-args>,      :value[],                     :type<string[]>      },
                         { :name<run-args>,        :value[],                     :type<string[]>      },
                         { :name<input-files>,     :value[],                     :type<remote-file[]> },
@@ -196,7 +213,7 @@ class Exercise does ApiPrefix {
         $.delete-file($name);
         my $upload-resp = post("uploaded-files", :hdr-content-type<form-data>,
                             Content => { $name => [~$local, ~$name, "Content_Type", "text/plain;charset=UTF-8"] });
-        my $add-resp = $.post("supplementary-files", Content => { "files[0]" => $upload-resp<id> });
+        my $add-resp = $.post("supplementary-files", files => [$upload-resp<id>] );
         $add-resp.first({$_<name> eq $name});
     }
 }
