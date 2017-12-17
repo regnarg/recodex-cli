@@ -37,30 +37,6 @@ class FileUpload {
     has $.type = "text/plain;charset=UTF-8";
 }
 
-# ReCodEx parses requests using PHP's braindead default array parametr handling, e.g.:
-# environmentConfigs[0][runtimeEnvironmentId]=python3&environmentConfigs[0][variablesTable][0][name]=source-file&...
-# It does not accept structured JSON input.
-sub flatten-form-data(%data) {
-    note "FLATTEN %data.perl()";
-    multi flatten($_, $prefix) {
-        when Positional|Associative {
-            $_.kv.map: -> $idx, $elem { | flatten($elem, $prefix~"[$idx]")  }
-        }
-        when Cool {
-            $prefix => ~$_
-        }
-        when FileUpload {
-            $prefix => [.local, .name, "Content_Type", .type]
-        }
-        default {
-            die "Cannot flatten {$_.perl}"
-        }
-    }
-    my @query = %data.kv.map: -> $name, $val { | flatten($val, $name) };
-    note @query.perl;
-    note @query.Hash.perl;
-    @query.Hash
-}
 
 sub api-request($meth, $path, *%kw) {
     my %lwp-kw;
@@ -70,7 +46,10 @@ sub api-request($meth, $path, *%kw) {
         when /[Content]/ { %lwp-kw{$_} = $val; }
         default { %form-data{$_} = $val; }
     }
-    if (%form-data) { %lwp-kw<Content> = flatten-form-data(%form-data); }
+    if (%form-data) {
+        %lwp-kw<Content> = %form-data.&to-json;
+        %lwp-kw<Content_Type> = "application/json";
+    }
     note "$meth.uc() $root/$path";
     my $lwp-args = \("$root/$path", Authorization => "Bearer $token", |%lwp-kw);
     note $lwp-args.perl;
