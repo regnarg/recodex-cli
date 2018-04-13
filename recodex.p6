@@ -95,6 +95,7 @@ class Exercise does ApiPrefix {
         :c<     c-gcc-linux         >,
         :cpp<   cxx-gcc-linux       >,
         :pas<   freepascal-linux    >,
+        :cs<    mono                >,
     };
     constant %ENV-TO-LANG = %LANG-TO-ENV.invert.Hash;
     constant %LANG-COMPILE-PIPELINE = {
@@ -218,6 +219,16 @@ class Exercise does ApiPrefix {
                             Content => { $name => [~$local, ~$name, "Content_Type", "text/plain;charset=UTF-8"] });
         my $add-resp = $.post("supplementary-files", files => [$upload-resp<id>] );
         $add-resp.first({$_<name> eq $name});
+    }
+
+    method set-judge-arg(@args) {
+        my @config := $.get("config");
+        for @args.kv -> $test, $arg {
+            for @config {
+                $_[0]<tests>[$test]<pipelines>[1]<variables>.grep({ $_<name> eq "judge-args" })[0]<value> = [~$arg];
+            }
+        }
+        $.post("config", :@config);
     }
 }
 
